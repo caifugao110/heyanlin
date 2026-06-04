@@ -1,9 +1,9 @@
 ' ******************************************************************************
 ' 作者: Tobin
-' 版本: 260604
+' 版本: 260605
 ' 功能：删除重复行并验证关键列存在性
 ' 操作说明：
-' 1. 根据"预算合同编号"和"合同预算项目"两列判断重复数据
+' 1. 根据全部5列的组合判断重复数据（预算合同编号、合同预算项目、累计已用预算、调整后预算金额.、最终预算）
 ' 2. 自动查找表头所在行
 ' 3. 验证以下列是否存在：
 '    - 预算合同编号
@@ -14,7 +14,7 @@
 ' ******************************************************************************
 
 Sub DeleteDuplicateRows()
-    Const VERSION As String = "260604"
+    Const VERSION As String = "260605"
     Dim ws As Worksheet
     Dim lastRow As Long, headerRow As Long
     Dim i As Long
@@ -71,7 +71,7 @@ Sub DeleteDuplicateRows()
     startTime = Timer
     
     For i = lastRow To headerRow + 1 Step -1
-        key = ws.Cells(i, col1).Value & "|" & ws.Cells(i, col2).Value
+        key = ws.Cells(i, col1).Value & "|" & ws.Cells(i, col2).Value & "|" & ws.Cells(i, col3).Value & "|" & ws.Cells(i, col4).Value & "|" & ws.Cells(i, col5).Value
         
         If dict.Exists(key) Then
             ws.Rows(i).Delete
