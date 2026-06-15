@@ -117,7 +117,7 @@ table-comparison/
 
 - **版本**: V2.1.1
 - **版权**: Tobin © 2026
-- **项目地址**: https://github.com/caifugao110/heyanlin/table-comparison
+- **项目地址**: https://github.com/caifugao110/heyanlin/tree/master/table-comparison
 - **许可证**: MIT License
 
 ## 🎯 性能优化

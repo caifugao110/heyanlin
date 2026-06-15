@@ -17,7 +17,7 @@ import io
 log_queue = queue.Queue()
 progress_queue = queue.Queue()
 
-PROJECT_URL = "https://github.com/caifugao110/heyanlin/table-comparison"
+PROJECT_URL = "https://github.com/caifugao110/heyanlin/tree/master/table-comparison"
 
 DEFAULT_APPEARANCE_MODE = "light"
 DEFAULT_COLOR_THEME = "blue"
@@ -639,7 +639,7 @@ class ExcelCompareGUI(ctk.CTk):
             width=120,
             height=30,
             font=("微软雅黑", 12),
-            command=lambda: webbrowser.open("https://github.com/caifugao110/heyanlin/table-comparison/blob/master/README.md")
+            command=lambda: webbrowser.open("https://github.com/caifugao110/heyanlin/blob/master/table-comparison/README.md")
         )
         help_btn.pack(side="left", padx=5)
 
