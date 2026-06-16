@@ -1,6 +1,6 @@
 ' ******************************************************************************
 ' 作者: Tobin
-' 版本: 260615
+' 版本: 260616
 ' 功能：提取合同号和税率信息并生成税率一览表
 ' 操作说明：
 ' 1. 从[销售台账]工作表中提取合同号和税率列数据
@@ -12,9 +12,15 @@
 ' ******************************************************************************
 
 Sub ExtractTaxRate()
-    Const VERSION As String = "260615"
+    Const VERSION As String = "260616"
     Dim startTime As Double
     startTime = Timer
+    
+    ' ★性能优化：关闭屏幕更新、自动计算和事件
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    Application.EnableEvents = False
+    
     Dim wsSource As Worksheet
     Dim wsTarget As Worksheet
     Dim lastRow As Long, headerRow As Long
@@ -32,13 +38,13 @@ Sub ExtractTaxRate()
     
     If wsSource Is Nothing Then
         MsgBox "未找到[销售台账]工作表！", vbCritical, VERSION & "版本自动化程序提醒您"
-        Exit Sub
+        GoTo CleanUp
     End If
     
     headerRow = FindHeaderRow(wsSource)
     If headerRow = 0 Then
         MsgBox "未找到表头行！" & vbCrLf & vbCrLf & "程序已在第 1-100 行范围内搜索，但未找到包含""合同号""或""税率""的表头行。" & vbCrLf & vbCrLf & "请检查工作表中是否包含这两个关键列名！", vbCritical, VERSION & "版本自动化程序提醒您"
-        Exit Sub
+        GoTo CleanUp
     End If
     
     colContractNo = GetColumnNumber(wsSource, "合同号", headerRow)
@@ -56,25 +62,37 @@ Sub ExtractTaxRate()
         Next colName
         errMsg = errMsg & vbCrLf & "请确保所有必要列与""合同号""和""税率""在同一行。" & vbCrLf & vbCrLf & "必要列清单：" & vbCrLf & "  ● 合同号" & vbCrLf & "  ● 税率"
         MsgBox errMsg, vbCritical, VERSION & "版本自动化程序提醒您"
-        Exit Sub
+        GoTo CleanUp
     End If
     
     lastRow = wsSource.Cells(wsSource.Rows.Count, colContractNo).End(xlUp).Row
+    Dim dataRowCount As Long
+    dataRowCount = lastRow - headerRow
+    If dataRowCount < 1 Then
+        MsgBox "数据区域为空，无数据可提取！", vbExclamation, VERSION & "版本自动化程序提醒您"
+        GoTo CleanUp
+    End If
     
-    For i = headerRow + 1 To lastRow
-        If Trim(wsSource.Cells(i, colContractNo).Value) <> "" Then
-            Dim cellValue As Variant
-            Dim taxRateValue As Double
-            cellValue = wsSource.Cells(i, colTaxRate).Value
+    ' ★性能优化：一次性读取整列数据到数组（避免逐格读取）
+    Dim arrContract() As Variant
+    Dim arrTaxRate() As Variant
+    arrContract = wsSource.Range(wsSource.Cells(headerRow + 1, colContractNo), wsSource.Cells(lastRow, colContractNo)).Value
+    arrTaxRate = wsSource.Range(wsSource.Cells(headerRow + 1, colTaxRate), wsSource.Cells(lastRow, colTaxRate)).Value
+    
+    Dim cellValue As Variant
+    Dim taxRateValue As Double
+    For i = 1 To dataRowCount
+        If Trim(CStr(arrContract(i, 1) & "")) <> "" Then
+            cellValue = arrTaxRate(i, 1)
             
             If Not IsNumeric(cellValue) Then
                 GoTo NextRow
             End If
             
             taxRateValue = Round(CDbl(cellValue), 5)
-            key = Trim(CStr(wsSource.Cells(i, colContractNo).Value)) & "|" & CStr(taxRateValue)
+            key = Trim(CStr(arrContract(i, 1) & "")) & "|" & CStr(taxRateValue)
             If Not dict.Exists(key) Then
-                dict.Add key, Array(wsSource.Cells(i, colContractNo).Value, taxRateValue)
+                dict.Add key, Array(arrContract(i, 1), taxRateValue)
             End If
         End If
 NextRow:
@@ -99,13 +117,23 @@ NextRow:
     wsTarget.Cells(1, 1).Value = "合同号"
     wsTarget.Cells(1, 2).Value = "税率"
     
-    targetRow = 2
+    ' ★性能优化：用数组批量写入输出（避免逐格写入）
+    Dim outputArr() As Variant
+    ReDim outputArr(1 To dict.Count, 1 To 2)
+    
+    Dim idx As Long
+    idx = 1
     Dim item As Variant
     For Each item In dict.Items
-        wsTarget.Cells(targetRow, 1).Value = item(0)
-        wsTarget.Cells(targetRow, 2).Value = item(1)
-        targetRow = targetRow + 1
+        outputArr(idx, 1) = item(0)
+        outputArr(idx, 2) = item(1)
+        idx = idx + 1
     Next item
+    
+    If dict.Count > 0 Then
+        wsTarget.Range("A2").Resize(dict.Count, 2).Value = outputArr
+    End If
+    targetRow = dict.Count + 2
     
     ' 格式化
     With wsTarget
@@ -115,9 +143,11 @@ NextRow:
         .Columns("B").HorizontalAlignment = xlRight
         .Rows(1).Font.Bold = True
         
-        Dim dataRange As Range
-        Set dataRange = .Range(.Cells(1, 1), .Cells(targetRow - 1, 2))
-        dataRange.Borders.LineStyle = xlContinuous
+        If dict.Count > 0 Then
+            Dim dataRange As Range
+            Set dataRange = .Range(.Cells(1, 1), .Cells(targetRow - 1, 2))
+            dataRange.Borders.LineStyle = xlContinuous
+        End If
         
         .Range("A1:B1").AutoFilter
     End With
@@ -128,6 +158,12 @@ NextRow:
     wsTarget.Activate
     
     MsgBox "操作完成！" & vbCrLf & vbCrLf & "已成功提取 " & dict.Count & " 条合同号-税率记录。" & vbCrLf & vbCrLf & "数据已保存到[税率一览表]工作表中。" & vbCrLf & vbCrLf & "耗时：" & elapsed & " ms", vbInformation, VERSION & "版本自动化程序提醒您"
+    
+CleanUp:
+    ' ★恢复Excel设置
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
     
     Set dict = Nothing
     Set missingColumns = Nothing
