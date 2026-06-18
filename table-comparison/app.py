@@ -9,21 +9,19 @@ import queue
 import threading
 import datetime
 import re
-import customtkinter as ctk
+import tkinter as tk
 from tkinter import filedialog, messagebox
 import webbrowser
-import io
+
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import BOTH, LEFT, RIGHT, YES
 
 log_queue = queue.Queue()
-progress_queue = queue.Queue()
 
 PROJECT_URL = "https://github.com/caifugao110/heyanlin/tree/master/table-comparison"
 
-DEFAULT_APPEARANCE_MODE = "light"
-DEFAULT_COLOR_THEME = "blue"
-
-ctk.set_appearance_mode(DEFAULT_APPEARANCE_MODE)
-ctk.set_default_color_theme(DEFAULT_COLOR_THEME)
+DEFAULT_BOOTSTRAP_THEME = "flatly"
+FONT_FAMILY = "Microsoft YaHei UI"
 
 
 def bundled_path(name: str) -> str:
@@ -521,10 +519,10 @@ class StdoutRedirector:
         pass
 
 
-class ExcelCompareGUI(ctk.CTk):
+class ExcelCompareGUI(ttk.Window):
     def __init__(self):
-        super().__init__()
-        self.title(f"Excel文件比较工具 V{__version__}")
+        super().__init__(themename=DEFAULT_BOOTSTRAP_THEME)
+        self.title(f"table-comparison V{__version__}")
         self.geometry("1200x800")
         self.minsize(1000, 700)
 
@@ -541,386 +539,248 @@ class ExcelCompareGUI(ctk.CTk):
         self.stop_event = threading.Event()
         self.worker_thread = None
 
+        self.theme_var = tk.StringVar(value=DEFAULT_BOOTSTRAP_THEME)
+        self.header_row_var = tk.StringVar(value="")
+        self.feature_cols_var = tk.StringVar(value="1,2,3")
+        self.summary_var = tk.StringVar(value="选择两个 Excel 文件后开始比较")
+        self.progress_var = tk.StringVar(value="")
+
         self._set_icon()
-
-        self._init_widgets()
-
+        self._build_ui()
         self._redirect_stdout()
-
         self._listen_queues()
 
     def _set_icon(self):
         try:
             icon_path = bundled_path("assets/app.ico")
             if os.path.exists(icon_path):
-                self.wm_iconbitmap(icon_path)
-            else:
-                raise FileNotFoundError(f"图标文件不存在: {icon_path}")
+                self.iconbitmap(icon_path)
         except Exception as e:
             print(f"设置主窗口图标失败: {e}")
-            try:
-                from PIL import Image, ImageTk
-                icon_path = bundled_path("assets/app.ico")
-                if os.path.exists(icon_path):
-                    icon = Image.open(icon_path)
-                    icon = icon.resize((32, 32), Image.LANCZOS)
-                    self.app_icon = ImageTk.PhotoImage(icon)
-                    self.iconphoto(False, self.app_icon)
-            except Exception as e2:
-                print(f"使用PIL设置图标也失败: {e2}")
 
-    def _add_file_color_hint(self, parent, text, color):
-        hint_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        hint_frame.pack(fill="x", pady=(0, 5))
+    def _build_ui(self):
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
 
-        color_mark = ctk.CTkFrame(
-            hint_frame,
-            width=10,
-            height=10,
-            corner_radius=2,
-            fg_color=color
+        header = ttk.Frame(self, padding=(18, 14, 18, 8))
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+
+        title = ttk.Label(header, text="table-comparison", font=(FONT_FAMILY, 22, "bold"))
+        title.grid(row=0, column=0, sticky="w")
+        meta = ttk.Label(header, text=f"V{__version__} Excel文件比较工具", bootstyle="secondary")
+        meta.grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        theme_bar = ttk.Frame(header)
+        theme_bar.grid(row=0, column=1, rowspan=2, sticky="e")
+        ttk.Label(theme_bar, text="主题").pack(side=LEFT, padx=(0, 8))
+        theme_box = ttk.Combobox(
+            theme_bar,
+            textvariable=self.theme_var,
+            values=sorted(self.style.theme_names()),
+            width=18,
+            state="readonly",
         )
-        color_mark.pack(side="left", padx=(0, 6), pady=(5, 0), anchor="n")
-        color_mark.pack_propagate(False)
+        theme_box.pack(side=LEFT)
+        theme_box.bind("<<ComboboxSelected>>", self._change_theme)
+        ttk.Button(theme_bar, text="GitHub", bootstyle="secondary-outline", command=self.open_homepage).pack(side=LEFT, padx=(8, 0))
+        ttk.Button(theme_bar, text="关于", bootstyle="secondary-outline", command=self.show_about).pack(side=LEFT, padx=(8, 0))
 
-        ctk.CTkLabel(
-            hint_frame,
-            text=text,
-            font=("微软雅黑", 10),
-            text_color=color,
-            justify="left"
-        ).pack(side="left", fill="x", expand=True, anchor="w")
+        main = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
+        main.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 12))
 
-    def _init_widgets(self):
-        main_container = ctk.CTkFrame(self)
-        main_container.pack(fill="both", expand=True, padx=0, pady=0)
+        controls = ttk.Frame(main, padding=12)
+        main.add(controls, weight=1)
+        logs = ttk.Frame(main, padding=(10, 12, 12, 12))
+        main.add(logs, weight=4)
 
-        header_frame = ctk.CTkFrame(main_container, fg_color=("gray90", "gray20"), height=100)
-        header_frame.pack(fill="x", padx=0, pady=0)
-        header_frame.pack_propagate(False)
+        self._build_controls(controls)
+        self._build_logs(logs)
+        self._build_footer()
 
-        title_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
-        title_frame.pack(fill="x", padx=20, pady=10)
+    def _build_controls(self, parent):
+        parent.columnconfigure(0, weight=1)
 
-        title_label = ctk.CTkLabel(
-            title_frame,
-            text="Excel文件比较工具",
-            font=("微软雅黑", 26, "bold"),
-            text_color=("#1f77b4", "#64b5f6")
+        path_box = ttk.Labelframe(parent, text="文件", padding=12)
+        path_box.grid(row=0, column=0, sticky="ew")
+        path_box.columnconfigure(1, weight=1)
+        self._path_row(
+            path_box,
+            0,
+            "基准文件",
+            "通常选择改动前的文件或者原始文件，该文件内容的删除标记为绿色。",
+            self._browse_baseline_file,
+            "success",
+            "baseline_entry",
         )
-        title_label.pack(anchor="w", side="left")
-
-        theme_frame = ctk.CTkFrame(title_frame, fg_color="transparent")
-        theme_frame.pack(anchor="e", side="right")
-
-        ctk.CTkLabel(
-            theme_frame,
-            text="主题:",
-            font=("微软雅黑", 12),
-            text_color=("gray50", "gray70")
-        ).pack(side="left", padx=(0, 10))
-
-        self.appearance_mode_optionemenu = ctk.CTkOptionMenu(
-            theme_frame,
-            values=["light", "dark", "system"],
-            command=self._change_appearance_mode_event,
-            font=("微软雅黑", 12),
-            width=120
-        )
-        self.appearance_mode_optionemenu.set(DEFAULT_APPEARANCE_MODE)
-        self.appearance_mode_optionemenu.pack(side="left", padx=(0, 10))
-
-        self.color_theme_optionemenu = ctk.CTkOptionMenu(
-            theme_frame,
-            values=["blue", "green", "dark-blue"],
-            command=self._change_color_theme_event,
-            font=("微软雅黑", 12),
-            width=120
-        )
-        self.color_theme_optionemenu.set(DEFAULT_COLOR_THEME)
-        self.color_theme_optionemenu.pack(side="left")
-
-        info_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
-        info_frame.pack(anchor="w", padx=20, pady=(0, 10))
-
-        self.version_label = ctk.CTkLabel(
-            info_frame,
-            text=f"{__author__} © 2026 | V{__version__}",
-            font=("微软雅黑", 12),
-            text_color=("gray50", "gray70")
-        )
-        self.version_label.pack(side="left", padx=(0, 20))
-
-        github_btn = ctk.CTkButton(
-            info_frame,
-            text="📌 GitHub地址",
-            width=120,
-            height=30,
-            font=("微软雅黑", 12),
-            command=lambda: webbrowser.open(__homepage__)
-        )
-        github_btn.pack(side="left", padx=5)
-
-        help_btn = ctk.CTkButton(
-            info_frame,
-            text="❓ 使用说明",
-            width=120,
-            height=30,
-            font=("微软雅黑", 12),
-            command=lambda: webbrowser.open("https://github.com/caifugao110/heyanlin/blob/master/table-comparison/README.md")
-        )
-        help_btn.pack(side="left", padx=5)
-
-        content_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        content_frame.pack(fill="both", expand=True, padx=15, pady=15)
-
-        left_panel = ctk.CTkFrame(content_frame, fg_color=("gray86", "gray17"))
-        left_panel.pack(side="left", fill="y", expand=False, padx=(0, 10))
-        left_panel.configure(width=420)
-
-        file_section = ctk.CTkFrame(left_panel, fg_color="transparent")
-        file_section.pack(fill="x", padx=15, pady=15)
-
-        ctk.CTkLabel(
-            file_section,
-            text="文件选择",
-            font=("微软雅黑", 16, "bold")
-        ).pack(anchor="w", pady=(0, 10))
-
-        baseline_frame = ctk.CTkFrame(file_section, fg_color="transparent")
-        baseline_frame.pack(fill="x", pady=5)
-
-        ctk.CTkLabel(
-            baseline_frame,
-            text="基准文件:",
-            width=100,
-            font=("微软雅黑", 12)
-        ).pack(side="left", anchor="center")
-
-        self.baseline_entry = ctk.CTkEntry(baseline_frame, font=("微软雅黑", 12))
-        self.baseline_entry.pack(side="left", fill="x", expand=True, padx=5)
-
-        ctk.CTkButton(
-            baseline_frame,
-            text="浏览",
-            width=60,
-            font=("微软雅黑", 12),
-            command=self._browse_baseline_file
-        ).pack(side="left", padx=5)
-
-        self._add_file_color_hint(
-            text="通常选择改动前的文件或者原始文件，该文件内容的新增标记为绿色",
-            parent=file_section,
-            color="#2E7D32"
+        self._path_row(
+            path_box,
+            3,
+            "比较文件",
+            "通常选择改动后的文件或者新的文件，该文件内容的新增标记为红色。",
+            self._browse_compare_file,
+            "danger",
+            "compare_entry",
         )
 
-        compare_frame = ctk.CTkFrame(file_section, fg_color="transparent")
-        compare_frame.pack(fill="x", pady=5)
+        option_box = ttk.Labelframe(parent, text="比较配置", padding=12)
+        option_box.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        option_box.columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(
-            compare_frame,
-            text="比较文件:",
-            width=100,
-            font=("微软雅黑", 12)
-        ).pack(side="left", anchor="center")
+        ttk.Label(option_box, text="表头行号", font=(FONT_FAMILY, 10, "bold")).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.header_row_entry = ttk.Entry(option_box, textvariable=self.header_row_var, state="readonly")
+        self.header_row_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(0, 6))
+        ttk.Button(option_box, text="选择", bootstyle="secondary-outline", command=self._select_header_row).grid(row=0, column=2, sticky="e", pady=(0, 6))
 
-        self.compare_entry = ctk.CTkEntry(compare_frame, font=("微软雅黑", 12))
-        self.compare_entry.pack(side="left", fill="x", expand=True, padx=5)
-
-        ctk.CTkButton(
-            compare_frame,
-            text="浏览",
-            width=60,
-            font=("微软雅黑", 12),
-            command=self._browse_compare_file
-        ).pack(side="left", padx=5)
-
-        self._add_file_color_hint(
-            text="通常选择改动后的文件或者新的文件，该文件内容的新增标记为红色",
-            parent=file_section,
-            color="#D32F2F"
-        )
-
-        config_section = ctk.CTkFrame(left_panel, fg_color="transparent")
-        config_section.pack(fill="x", padx=15, pady=15)
-
-        ctk.CTkLabel(
-            config_section,
-            text="比较配置",
-            font=("微软雅黑", 16, "bold")
-        ).pack(anchor="w", pady=(0, 10))
-
-        header_row_frame = ctk.CTkFrame(config_section, fg_color="transparent")
-        header_row_frame.pack(fill="x", pady=5)
-
-        ctk.CTkLabel(
-            header_row_frame,
-            text="表头行号:",
-            width=100,
-            font=("微软雅黑", 12)
-        ).pack(side="left", anchor="center")
-
-        self.header_row_var = ctk.StringVar(value="")
-        self.header_row_entry = ctk.CTkEntry(header_row_frame, textvariable=self.header_row_var, font=("微软雅黑", 12), width=150, state="readonly")
-        self.header_row_entry.pack(side="left", padx=5)
-
-        ctk.CTkButton(
-            header_row_frame,
-            text="选择",
-            width=60,
-            font=("微软雅黑", 12),
-            command=self._select_header_row
-        ).pack(side="left", padx=5)
-
-        self.header_preview_frame = ctk.CTkFrame(config_section, fg_color="transparent")
-        self.header_preview_frame.pack(fill="x", pady=5)
-
-        self.header_preview_label = ctk.CTkLabel(
-            self.header_preview_frame,
+        self.header_preview_label = ttk.Label(
+            option_box,
             text="请点击'选择'按钮查看并选择表头行号",
-            font=("微软雅黑", 10),
-            text_color="gray50"
+            bootstyle="secondary",
+            wraplength=310,
+            justify=LEFT,
         )
-        self.header_preview_label.pack(anchor="w")
+        self.header_preview_label.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 12))
 
-        feature_cols_frame = ctk.CTkFrame(config_section, fg_color="transparent")
-        feature_cols_frame.pack(fill="x", pady=5)
+        ttk.Label(option_box, text="特征列", font=(FONT_FAMILY, 10, "bold")).grid(row=2, column=0, sticky="w", padx=(0, 8))
+        self.feature_cols_entry = ttk.Entry(option_box, textvariable=self.feature_cols_var, state="readonly")
+        self.feature_cols_entry.grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=(0, 6))
+        ttk.Button(option_box, text="选择", bootstyle="secondary-outline", command=self._select_feature_columns).grid(row=2, column=2, sticky="e", pady=(0, 6))
 
-        ctk.CTkLabel(
-            feature_cols_frame,
-            text="特征列:",
-            width=100,
-            font=("微软雅黑", 12)
-        ).pack(side="left", anchor="center")
-
-        self.feature_cols_var = ctk.StringVar(value="1,2,3")
-        self.feature_cols_entry = ctk.CTkEntry(feature_cols_frame, textvariable=self.feature_cols_var, font=("微软雅黑", 12), width=150, state="readonly")
-        self.feature_cols_entry.pack(side="left", padx=5)
-
-        ctk.CTkButton(
-            feature_cols_frame,
-            text="选择",
-            width=60,
-            font=("微软雅黑", 12),
-            command=self._select_feature_columns
-        ).pack(side="left", padx=5)
-
-        self.feature_cols_preview_frame = ctk.CTkFrame(config_section, fg_color="transparent")
-        self.feature_cols_preview_frame.pack(fill="x", pady=5)
-
-        self.feature_cols_preview_label = ctk.CTkLabel(
-            self.feature_cols_preview_frame,
+        self.feature_cols_preview_label = ttk.Label(
+            option_box,
             text="请点击'选择'按钮查看并选择特征列，最多支持6列，默认使用列: 1,2,3",
-            font=("微软雅黑", 10),
-            text_color="gray50"
+            bootstyle="secondary",
+            wraplength=310,
+            justify=LEFT,
         )
-        self.feature_cols_preview_label.pack(anchor="w")
+        self.feature_cols_preview_label.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 10))
 
-        ctk.CTkLabel(
-            config_section,
-            text="提示: 特征列用于判断行的增删变化，特征列内容的变化不视为数值变化",
-            font=("微软雅黑", 12, "bold"),
-            text_color="#FF6B35"
-        ).pack(anchor="w", pady=(5, 0))
+        ttk.Label(
+            option_box,
+            text="特征列用于判断行的增删变化，特征列内容的变化不视为数值变化。",
+            bootstyle="warning-inverse",
+            padding=(8, 10),
+            wraplength=310,
+            justify=LEFT,
+        ).grid(row=4, column=0, columnspan=3, sticky="ew")
 
-        button_section = ctk.CTkFrame(left_panel, fg_color="transparent")
-        button_section.pack(fill="x", padx=15, pady=15)
+        action_box = ttk.Frame(parent)
+        action_box.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        action_box.columnconfigure(0, weight=1)
+        action_box.columnconfigure(1, weight=1)
 
-        self.start_button = ctk.CTkButton(
-            button_section,
-            text="开始比较",
-            font=("微软雅黑", 16, "bold"),
-            height=46,
-            fg_color="#4CAF50",
-            hover_color="#45a049",
-            command=self._start_compare
-        )
-        self.start_button.pack(fill="x", pady=5)
+        self.start_button = ttk.Button(action_box, text="开始比较", bootstyle="success", command=self._start_compare)
+        self.start_button.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
 
-        self.stop_button = ctk.CTkButton(
-            button_section,
-            text="停止",
-            font=("微软雅黑", 16, "bold"),
-            height=46,
-            fg_color="#f44336",
-            hover_color="#da190b",
-            command=self._stop_compare,
-            state="disabled"
-        )
-        self.stop_button.pack(fill="x", pady=5)
+        self.stop_button = ttk.Button(action_box, text="停止", bootstyle="danger", command=self._stop_compare, state="disabled")
+        self.stop_button.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
 
-        utility_button_frame = ctk.CTkFrame(button_section, fg_color="transparent")
-        utility_button_frame.pack(fill="x", pady=(8, 5))
-        utility_button_frame.grid_columnconfigure(0, weight=1)
-        utility_button_frame.grid_columnconfigure(1, weight=1)
+        self.clear_selection_button = ttk.Button(action_box, text="清空选择", bootstyle="secondary-outline", command=self._clear_selection)
+        self.clear_selection_button.grid(row=2, column=0, sticky="ew", padx=(0, 4))
+        self.open_results_button = ttk.Button(action_box, text="打开结果文件夹", bootstyle="secondary-outline", command=self._open_results_folder)
+        self.open_results_button.grid(row=2, column=1, sticky="ew", padx=(4, 0))
 
-        self.clear_selection_button = ctk.CTkButton(
-            utility_button_frame,
-            text="清空选择",
-            font=("微软雅黑", 13, "bold"),
-            height=46,
-            fg_color="#607D8B",
-            hover_color="#546E7A",
-            command=self._clear_selection
-        )
-        self.clear_selection_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+    def _path_row(self, parent, row, title, hint, command, style, entry_attr):
+        ttk.Label(parent, text=title, font=(FONT_FAMILY, 10, "bold")).grid(row=row, column=0, columnspan=3, sticky="w")
+        entry = ttk.Entry(parent)
+        entry.grid(row=row + 1, column=0, columnspan=2, sticky="ew", pady=(4, 0), padx=(0, 8))
+        setattr(self, entry_attr, entry)
+        ttk.Button(parent, text="选择", bootstyle="secondary-outline", command=command).grid(row=row + 1, column=2, sticky="e")
+        ttk.Label(
+            parent,
+            text=hint,
+            bootstyle=f"{style}-inverse",
+            padding=(8, 10),
+            wraplength=300,
+            justify=LEFT,
+        ).grid(row=row + 2, column=0, columnspan=3, sticky="ew", pady=(6, 12))
 
-        self.open_results_button = ctk.CTkButton(
-            utility_button_frame,
-            text="打开结果文件夹",
-            font=("微软雅黑", 13, "bold"),
-            height=46,
-            fg_color="#2196F3",
-            hover_color="#1976D2",
-            command=self._open_results_folder
-        )
-        self.open_results_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+    def _build_logs(self, parent):
+        parent.rowconfigure(1, weight=1)
+        parent.columnconfigure(0, weight=1)
 
-        right_panel = ctk.CTkFrame(content_frame, fg_color=("gray86", "gray17"))
-        right_panel.pack(side="right", fill="both", expand=True)
+        toolbar = ttk.Frame(parent)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        toolbar.columnconfigure(0, weight=1)
+        ttk.Label(toolbar, text="任务日志", font=(FONT_FAMILY, 14, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(toolbar, text="实时输出比较进度和结果文件路径", bootstyle="secondary").grid(row=1, column=0, sticky="w", pady=(2, 0))
 
-        log_title_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
-        log_title_frame.pack(fill="x", padx=15, pady=10)
+        text_frame = ttk.Frame(parent)
+        text_frame.grid(row=1, column=0, sticky="nsew")
+        text_frame.rowconfigure(0, weight=1)
+        text_frame.columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            log_title_frame,
-            text="任务日志",
-            font=("微软雅黑", 16, "bold")
-        ).pack(anchor="w")
-
-        log_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
-        log_frame.pack(fill="both", expand=True, padx=15, pady=5)
-
-        self.log_text = ctk.CTkTextbox(
-            log_frame,
-            font=("微软雅黑", 12),
+        self.log_text = tk.Text(
+            text_frame,
             wrap="word",
-            corner_radius=8,
-            border_width=2,
-            border_color=("#D1D1D6", "#4A4A4A"),
-            fg_color=("#F8F8F8", "#1A1A1A"),
-            text_color=("#424242", "#B0BEC5"),
+            font=(FONT_FAMILY, 10),
             padx=10,
             pady=10,
-            height=80
+            relief="solid",
+            borderwidth=1,
+            foreground="#424242",
+            background="#ffffff",
+            insertbackground="#424242",
         )
-        log_frame.grid_rowconfigure(0, weight=1)
-        log_frame.grid_columnconfigure(0, weight=1)
-        self.log_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+        yscroll = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        yscroll.grid(row=0, column=1, sticky="ns")
+        self.log_text.configure(yscrollcommand=yscroll.set)
 
-        scrollbar = ctk.CTkScrollbar(
-            log_frame,
-            command=self.log_text.yview,
-            corner_radius=8
-        )
-        scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 5), pady=5)
-        self.log_text.configure(yscrollcommand=scrollbar.set)
+    def _build_footer(self):
+        footer = ttk.Frame(self, padding=(18, 0, 18, 14))
+        footer.grid(row=2, column=0, sticky="ew")
+        footer.columnconfigure(0, weight=1)
+        ttk.Label(footer, textvariable=self.summary_var, bootstyle="secondary").grid(row=0, column=0, sticky="w")
+        ttk.Label(footer, textvariable=self.progress_var, bootstyle="info").grid(row=0, column=1, sticky="e", padx=(12, 0))
+        self.progress = ttk.Progressbar(footer, mode="indeterminate", length=160)
+        self.progress.grid(row=0, column=2, sticky="e", padx=(8, 0))
 
-    def _change_appearance_mode_event(self, new_appearance_mode: str):
-        ctk.set_appearance_mode(new_appearance_mode)
+    def _change_theme(self, _=None):
+        self.style.theme_use(self.theme_var.get())
 
-    def _change_color_theme_event(self, new_color_theme: str):
-        ctk.set_default_color_theme(new_color_theme)
+    def open_homepage(self):
+        webbrowser.open(__homepage__ or PROJECT_URL)
+
+    def show_about(self):
+        dialog = ttk.Toplevel(self)
+        dialog.title("关于 table-comparison")
+        dialog.geometry("460x260")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        self._center_dialog(dialog, 460, 260)
+
+        container = ttk.Frame(dialog, padding=22)
+        container.pack(fill=BOTH, expand=YES)
+        ttk.Label(container, text="table-comparison", font=(FONT_FAMILY, 18, "bold")).pack(anchor="w")
+        ttk.Label(container, text=f"版本 V{__version__}", bootstyle="secondary").pack(anchor="w", pady=(4, 0))
+        ttk.Label(container, text=f"作者：{__author__}", bootstyle="secondary").pack(anchor="w", pady=(8, 0))
+        ttk.Label(container, text="开源协议：MIT", bootstyle="secondary").pack(anchor="w", pady=(4, 0))
+        link = ttk.Label(container, text=__homepage__ or PROJECT_URL, bootstyle="primary", cursor="hand2")
+        link.pack(anchor="w", pady=(14, 0))
+        link.bind("<Button-1>", lambda _: self.open_homepage())
+        ttk.Button(container, text="关闭", bootstyle="primary", command=dialog.destroy).pack(anchor="e", pady=(24, 0))
+
+    def _center_dialog(self, dialog, width, height):
+        self.update_idletasks()
+        x = self.winfo_rootx() + max((self.winfo_width() - width) // 2, 0)
+        y = self.winfo_rooty() + max((self.winfo_height() - height) // 2, 0)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _set_running_state(self, is_running):
+        self.running = is_running
+        self.start_button.configure(state="disabled" if is_running else "normal")
+        self.stop_button.configure(state="normal" if is_running else "disabled")
+        self.clear_selection_button.configure(state="disabled" if is_running else "normal")
+        if is_running:
+            self.progress.start(12)
+            self.progress_var.set("正在比较...")
+            self.summary_var.set("比较进行中")
+        else:
+            self.progress.stop()
+            self.progress_var.set("")
+            self.summary_var.set("任务结束，请查看任务日志和 results 文件夹")
 
     def _browse_baseline_file(self):
         file_path = filedialog.askopenfilename(
@@ -928,7 +788,7 @@ class ExcelCompareGUI(ctk.CTk):
             filetypes=[("Excel文件", "*.xlsx"), ("所有文件", "*")]
         )
         if file_path:
-            self.baseline_entry.delete(0, ctk.END)
+            self.baseline_entry.delete(0, tk.END)
             self.baseline_entry.insert(0, file_path)
             self.baseline_file = file_path
 
@@ -938,7 +798,7 @@ class ExcelCompareGUI(ctk.CTk):
             filetypes=[("Excel文件", "*.xlsx"), ("所有文件", "*")]
         )
         if file_path:
-            self.compare_entry.delete(0, ctk.END)
+            self.compare_entry.delete(0, tk.END)
             self.compare_entry.insert(0, file_path)
             self.compare_file = file_path
 
@@ -963,23 +823,17 @@ class ExcelCompareGUI(ctk.CTk):
             messagebox.showerror("错误", "请选择表头行号")
             return
 
-        self.running = True
         self.stop_event.clear()
-        self.start_button.configure(state="disabled")
-        self.stop_button.configure(state="normal")
-        self.clear_selection_button.configure(state="disabled")
+        self._set_running_state(True)
+        self.log_text.delete("1.0", tk.END)
 
-        self.log_text.delete("1.0", ctk.END)
-
-        self.worker_thread = threading.Thread(
-            target=self._compare_worker,
-            daemon=True
-        )
+        self.worker_thread = threading.Thread(target=self._compare_worker, daemon=True)
         self.worker_thread.start()
 
     def _stop_compare(self):
         self.stop_event.set()
         self.stop_button.configure(state="disabled")
+        self.progress_var.set("正在停止...")
 
     def _open_results_folder(self):
         try:
@@ -1000,8 +854,8 @@ class ExcelCompareGUI(ctk.CTk):
 
         self.baseline_file = ""
         self.compare_file = ""
-        self.baseline_entry.delete(0, ctk.END)
-        self.compare_entry.delete(0, ctk.END)
+        self.baseline_entry.delete(0, tk.END)
+        self.compare_entry.delete(0, tk.END)
         self.header_row_var.set("")
         self.feature_cols_var.set("1,2,3")
         self.header_preview_label.configure(text="请点击'选择'按钮查看并选择表头行号")
@@ -1019,54 +873,36 @@ class ExcelCompareGUI(ctk.CTk):
             max_row = min(10, ws.max_row)
             max_col = min(6, ws.max_column)
 
-            select_window = ctk.CTkToplevel(self)
+            select_window = ttk.Toplevel(self)
             select_window.title("选择表头行号")
             select_window.geometry("900x400")
-
-            try:
-                icon_path = bundled_path("assets/app.ico")
-                if os.path.exists(icon_path):
-                    select_window.after(300, lambda: select_window.wm_iconbitmap(icon_path))
-            except Exception as e:
-                print(f"设置表头行选择窗口图标失败: {e}")
-
             select_window.transient(self)
             select_window.grab_set()
 
-            preview_frame = ctk.CTkFrame(select_window)
-            preview_frame.pack(fill="both", expand=True, padx=10, pady=10)
+            preview_frame = ttk.Frame(select_window, padding=10)
+            preview_frame.pack(fill=BOTH, expand=YES)
 
             for row in range(1, max_row + 1):
-                row_btn = ctk.CTkButton(
+                row_btn = ttk.Button(
                     preview_frame,
                     text=f"行 {row}",
-                    width=60,
-                    height=30,
-                    font=("微软雅黑", 10),
+                    width=8,
+                    bootstyle="secondary-outline",
                     command=lambda r=row: self._set_header_row(r, select_window)
                 )
                 row_btn.grid(row=row, column=0, padx=5, pady=2, sticky="w")
 
                 for col in range(1, max_col + 1):
                     cell_value = ws.cell(row=row, column=col).value
-                    cell_text = str(cell_value) if cell_value else "空"
-
-                    cell_label = ctk.CTkLabel(
+                    text = str(cell_value) if cell_value else "空"
+                    ttk.Label(
                         preview_frame,
-                        text=cell_text,
-                        width=140,
-                        height=30,
-                        font=("微软雅黑", 10),
-                        anchor="w"
-                    )
-                    cell_label.grid(row=row, column=col, padx=5, pady=2, sticky="w")
+                        text=text,
+                        width=18,
+                        anchor="w",
+                    ).grid(row=row, column=col, padx=5, pady=2, sticky="w")
 
-            info_label = ctk.CTkLabel(
-                select_window,
-                text="请点击行号选择表头所在行",
-                font=("微软雅黑", 12)
-            )
-            info_label.pack(pady=10)
+            ttk.Label(select_window, text="请点击行号选择表头所在行", bootstyle="secondary").pack(pady=10)
 
         except Exception as e:
             messagebox.showerror("错误", f"加载文件失败: {str(e)}")
@@ -1087,10 +923,8 @@ class ExcelCompareGUI(ctk.CTk):
             self.header_preview_label.configure(
                 text=f"已选择表头行 {row_num}，内容预览: {', '.join(cols_data)}"
             )
-        except Exception as e:
-            self.header_preview_label.configure(
-                text=f"已选择表头行 {row_num}"
-            )
+        except Exception:
+            self.header_preview_label.configure(text=f"已选择表头行 {row_num}")
 
         window.destroy()
 
@@ -1118,29 +952,29 @@ class ExcelCompareGUI(ctk.CTk):
                 header_values.append(f"{col}: {col_name}")
                 col_name_map[col] = col_name
 
-            select_window = ctk.CTkToplevel(self)
+            select_window = ttk.Toplevel(self)
             select_window.title("选择特征列")
-            select_window.geometry("400x300")
+            select_window.geometry("420x320")
             select_window.resizable(False, False)
-
-            try:
-                icon_path = bundled_path("assets/app.ico")
-                if os.path.exists(icon_path):
-                    select_window.after(300, lambda: select_window.wm_iconbitmap(icon_path))
-            except Exception as e:
-                print(f"设置特征列选择窗口图标失败: {e}")
-
             select_window.transient(self)
             select_window.grab_set()
 
-            listbox = ctk.CTkScrollableFrame(select_window)
-            listbox.pack(fill="both", expand=True, padx=10, pady=10)
+            outer = ttk.Frame(select_window, padding=10)
+            outer.pack(fill=BOTH, expand=YES)
+            canvas = tk.Canvas(outer, highlightthickness=0, height=210)
+            scrollbar = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
+            inner = ttk.Frame(canvas)
+            inner.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+            canvas.create_window((0, 0), window=inner, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
+            canvas.pack(side=LEFT, fill=BOTH, expand=YES)
+            scrollbar.pack(side=RIGHT, fill=tk.Y)
 
             checkboxes = []
             for i, header in enumerate(header_values[:20]):
-                var = ctk.IntVar()
-                checkbox = ctk.CTkCheckBox(listbox, text=header, variable=var)
-                checkbox.pack(anchor="w", pady=5)
+                var = tk.IntVar()
+                checkbox = ttk.Checkbutton(inner, text=header, variable=var)
+                checkbox.pack(anchor="w", pady=4)
                 checkboxes.append((var, i + 1))
 
             def on_select():
@@ -1154,18 +988,11 @@ class ExcelCompareGUI(ctk.CTk):
 
                 selected_str = ", ".join(map(str, selected))
                 self.feature_cols_var.set(selected_str)
-
                 selected_col_names = [f"{col}({col_name_map[col]})" for col in selected]
-                preview_text = f"已选择特征列: {', '.join(selected_col_names)}"
-
-                self.feature_cols_preview_label.configure(
-                    text=preview_text
-                )
-
+                self.feature_cols_preview_label.configure(text=f"已选择特征列: {', '.join(selected_col_names)}")
                 select_window.destroy()
 
-            select_button = ctk.CTkButton(select_window, text="确定", command=on_select, fg_color="#4CAF50")
-            select_button.pack(pady=10)
+            ttk.Button(select_window, text="确定", bootstyle="success", command=on_select).pack(pady=(0, 12))
 
         except Exception as e:
             messagebox.showerror("错误", f"加载文件失败: {str(e)}")
@@ -1215,30 +1042,9 @@ class ExcelCompareGUI(ctk.CTk):
                 log_queue.put("\n❌ 错误：特征列格式无效")
                 return False
 
-            baseline_folder = os.path.basename(os.path.dirname(self.baseline_file))
-            compare_folder = os.path.basename(os.path.dirname(self.compare_file))
             baseline_filename = os.path.basename(self.baseline_file).replace('.xlsx', '')
             compare_filename = os.path.basename(self.compare_file).replace('.xlsx', '')
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-            header_preview = ""
-            try:
-                wb = openpyxl.load_workbook(self.baseline_file, data_only=True)
-                ws = wb.active
-                if header_row <= ws.max_row:
-                    max_col = min(6, ws.max_column)
-                    header_cells = []
-                    for col in range(1, max_col + 1):
-                        cell_value = ws.cell(row=header_row, column=col).value
-                        if cell_value:
-                            header_cells.append(str(cell_value))
-                        else:
-                            header_cells.append("空")
-                    header_preview = ", ".join(header_cells)
-                    if ws.max_column > 6:
-                        header_preview += f", ... (共{ws.max_column}列)"
-            except Exception as e:
-                header_preview = "无法读取表头内容"
 
             log_queue.put("\n已定义比较配置：")
             log_queue.put(f"\n已选择表头行 {header_row}")
@@ -1273,10 +1079,7 @@ class ExcelCompareGUI(ctk.CTk):
         except Exception as e:
             log_queue.put(f"\n❌ 任务过程中出错: {str(e)}")
         finally:
-            self.running = False
-            self.start_button.configure(state="normal")
-            self.stop_button.configure(state="disabled")
-            self.clear_selection_button.configure(state="normal")
+            self.after(0, lambda: self._set_running_state(False))
 
     def _redirect_stdout(self):
         sys.stdout = StdoutRedirector(self.log_text)
@@ -1288,8 +1091,7 @@ class ExcelCompareGUI(ctk.CTk):
                 if not message.endswith('\n'):
                     message += '\n'
 
-                self.log_text.insert(ctk.END, message)
-
+                self.log_text.insert(tk.END, message)
                 line_start = "end-2l"
                 line_end = "end-1l"
 
@@ -1315,7 +1117,7 @@ class ExcelCompareGUI(ctk.CTk):
                     self.log_text.tag_add("normal", line_start, line_end)
                     self.log_text.tag_config("normal", foreground="#424242")
 
-                self.log_text.see(ctk.END)
+                self.log_text.see(tk.END)
         except queue.Empty:
             pass
         finally:
