@@ -569,6 +569,28 @@ class ExcelCompareGUI(ctk.CTk):
             except Exception as e2:
                 print(f"使用PIL设置图标也失败: {e2}")
 
+    def _add_file_color_hint(self, parent, text, color):
+        hint_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        hint_frame.pack(fill="x", pady=(0, 5))
+
+        color_mark = ctk.CTkFrame(
+            hint_frame,
+            width=10,
+            height=10,
+            corner_radius=2,
+            fg_color=color
+        )
+        color_mark.pack(side="left", padx=(0, 6), pady=(5, 0), anchor="n")
+        color_mark.pack_propagate(False)
+
+        ctk.CTkLabel(
+            hint_frame,
+            text=text,
+            font=("微软雅黑", 10),
+            text_color=color,
+            justify="left"
+        ).pack(side="left", fill="x", expand=True, anchor="w")
+
     def _init_widgets(self):
         main_container = ctk.CTkFrame(self)
         main_container.pack(fill="both", expand=True, padx=0, pady=0)
@@ -654,7 +676,7 @@ class ExcelCompareGUI(ctk.CTk):
 
         left_panel = ctk.CTkFrame(content_frame, fg_color=("gray86", "gray17"))
         left_panel.pack(side="left", fill="y", expand=False, padx=(0, 10))
-        left_panel.configure(width=300)
+        left_panel.configure(width=420)
 
         file_section = ctk.CTkFrame(left_panel, fg_color="transparent")
         file_section.pack(fill="x", padx=15, pady=15)
@@ -686,12 +708,11 @@ class ExcelCompareGUI(ctk.CTk):
             command=self._browse_baseline_file
         ).pack(side="left", padx=5)
 
-        ctk.CTkLabel(
-            file_section,
+        self._add_file_color_hint(
             text="通常选择改动前的文件或者原始文件，该文件内容的新增标记为绿色",
-            font=("微软雅黑", 10),
-            text_color="gray50"
-        ).pack(anchor="w", pady=(0, 5))
+            parent=file_section,
+            color="#2E7D32"
+        )
 
         compare_frame = ctk.CTkFrame(file_section, fg_color="transparent")
         compare_frame.pack(fill="x", pady=5)
@@ -714,12 +735,11 @@ class ExcelCompareGUI(ctk.CTk):
             command=self._browse_compare_file
         ).pack(side="left", padx=5)
 
-        ctk.CTkLabel(
-            file_section,
+        self._add_file_color_hint(
             text="通常选择改动后的文件或者新的文件，该文件内容的新增标记为红色",
-            font=("微软雅黑", 10),
-            text_color="gray50"
-        ).pack(anchor="w", pady=(0, 5))
+            parent=file_section,
+            color="#D32F2F"
+        )
 
         config_section = ctk.CTkFrame(left_panel, fg_color="transparent")
         config_section.pack(fill="x", padx=15, pady=15)
@@ -810,7 +830,7 @@ class ExcelCompareGUI(ctk.CTk):
             button_section,
             text="开始比较",
             font=("微软雅黑", 16, "bold"),
-            height=50,
+            height=46,
             fg_color="#4CAF50",
             hover_color="#45a049",
             command=self._start_compare
@@ -821,13 +841,40 @@ class ExcelCompareGUI(ctk.CTk):
             button_section,
             text="停止",
             font=("微软雅黑", 16, "bold"),
-            height=50,
+            height=46,
             fg_color="#f44336",
             hover_color="#da190b",
             command=self._stop_compare,
             state="disabled"
         )
         self.stop_button.pack(fill="x", pady=5)
+
+        utility_button_frame = ctk.CTkFrame(button_section, fg_color="transparent")
+        utility_button_frame.pack(fill="x", pady=(8, 5))
+        utility_button_frame.grid_columnconfigure(0, weight=1)
+        utility_button_frame.grid_columnconfigure(1, weight=1)
+
+        self.clear_selection_button = ctk.CTkButton(
+            utility_button_frame,
+            text="清空选择",
+            font=("微软雅黑", 13, "bold"),
+            height=46,
+            fg_color="#607D8B",
+            hover_color="#546E7A",
+            command=self._clear_selection
+        )
+        self.clear_selection_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+        self.open_results_button = ctk.CTkButton(
+            utility_button_frame,
+            text="打开结果文件夹",
+            font=("微软雅黑", 13, "bold"),
+            height=46,
+            fg_color="#2196F3",
+            hover_color="#1976D2",
+            command=self._open_results_folder
+        )
+        self.open_results_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
         right_panel = ctk.CTkFrame(content_frame, fg_color=("gray86", "gray17"))
         right_panel.pack(side="right", fill="both", expand=True)
@@ -920,6 +967,7 @@ class ExcelCompareGUI(ctk.CTk):
         self.stop_event.clear()
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
+        self.clear_selection_button.configure(state="disabled")
 
         self.log_text.delete("1.0", ctk.END)
 
@@ -932,6 +980,32 @@ class ExcelCompareGUI(ctk.CTk):
     def _stop_compare(self):
         self.stop_event.set()
         self.stop_button.configure(state="disabled")
+
+    def _open_results_folder(self):
+        try:
+            os.makedirs(self.results_folder, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(os.path.normpath(self.results_folder))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", self.results_folder])
+            else:
+                subprocess.Popen(["xdg-open", self.results_folder])
+        except Exception as e:
+            messagebox.showerror("错误", f"打开结果文件夹失败: {str(e)}")
+
+    def _clear_selection(self):
+        if self.running:
+            messagebox.showwarning("提示", "任务运行中，请先停止或等待完成后再清空选择")
+            return
+
+        self.baseline_file = ""
+        self.compare_file = ""
+        self.baseline_entry.delete(0, ctk.END)
+        self.compare_entry.delete(0, ctk.END)
+        self.header_row_var.set("")
+        self.feature_cols_var.set("1,2,3")
+        self.header_preview_label.configure(text="请点击'选择'按钮查看并选择表头行号")
+        self.feature_cols_preview_label.configure(text="请点击'选择'按钮查看并选择特征列，最多支持6列，默认使用列: 1,2,3")
 
     def _select_header_row(self):
         if not self.baseline_file:
@@ -1202,6 +1276,7 @@ class ExcelCompareGUI(ctk.CTk):
             self.running = False
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
+            self.clear_selection_button.configure(state="normal")
 
     def _redirect_stdout(self):
         sys.stdout = StdoutRedirector(self.log_text)
