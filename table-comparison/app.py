@@ -601,7 +601,7 @@ class ExcelCompareGUI(ttk.Window):
     def _build_controls(self, parent):
         parent.columnconfigure(0, weight=1)
 
-        path_box = ttk.Labelframe(parent, text="文件", padding=12)
+        path_box = ttk.Labelframe(parent, text="选择文件", padding=12)
         path_box.grid(row=0, column=0, sticky="ew")
         path_box.columnconfigure(1, weight=1)
         self._path_row(
@@ -660,7 +660,7 @@ class ExcelCompareGUI(ttk.Window):
             text="特征列用于判断行的增删变化，特征列内容的变化不视为数值变化。",
             bootstyle="warning-inverse",
             padding=(8, 10),
-            wraplength=310,
+            wraplength=500,
             justify=LEFT,
         ).grid(row=4, column=0, columnspan=3, sticky="ew")
 
@@ -670,10 +670,10 @@ class ExcelCompareGUI(ttk.Window):
         action_box.columnconfigure(1, weight=1)
 
         self.start_button = ttk.Button(action_box, text="开始比较", bootstyle="success", command=self._start_compare)
-        self.start_button.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.start_button.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 8))
 
         self.stop_button = ttk.Button(action_box, text="停止", bootstyle="danger", command=self._stop_compare, state="disabled")
-        self.stop_button.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.stop_button.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 8))
 
         self.clear_selection_button = ttk.Button(action_box, text="清空选择", bootstyle="secondary-outline", command=self._clear_selection)
         self.clear_selection_button.grid(row=2, column=0, sticky="ew", padx=(0, 4))
@@ -691,7 +691,7 @@ class ExcelCompareGUI(ttk.Window):
             text=hint,
             bootstyle=f"{style}-inverse",
             padding=(8, 10),
-            wraplength=300,
+            wraplength=500,
             justify=LEFT,
         ).grid(row=row + 2, column=0, columnspan=3, sticky="ew", pady=(6, 12))
 
