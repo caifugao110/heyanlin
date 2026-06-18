@@ -75,6 +75,12 @@ __author__ = PROJECT_METADATA["author"]
 __homepage__ = PROJECT_METADATA["homepage"]
 
 
+def cell_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def compare_excel_files(baseline_path, compare_path, output_baseline_path, output_compare_path, results_folder, original_filename, timestamp, header_row=3, key_fields=None, stop_event=None):
     def check_stop():
         if stop_event and stop_event.is_set():
@@ -126,7 +132,7 @@ def compare_excel_files(baseline_path, compare_path, output_baseline_path, outpu
             cells_compare[(r, c)] = ws_compare.cell(row=r, column=c).value
 
     if not key_fields:
-        header_values = [cells_baseline.get((header_row, c), "").strip() for c in range(1, min(baseline_max_col + 1, 4))]
+        header_values = [cell_text(cells_baseline.get((header_row, c))) for c in range(1, min(baseline_max_col + 1, 4))]
         key_fields = [v for v in header_values if v]
         if len(key_fields) < 3:
             key_fields = [f"列{c}" for c in range(1, min(baseline_max_col + 1, 4))]
@@ -135,7 +141,7 @@ def compare_excel_files(baseline_path, compare_path, output_baseline_path, outpu
         key_cols = {}
         header_values = {}
         for col in range(1, max_col + 1):
-            cell_value = cells.get((header_row_num, col), "").strip()
+            cell_value = cell_text(cells.get((header_row_num, col)))
             header_values[cell_value] = col
 
         for field in key_field_names:
@@ -211,12 +217,12 @@ def compare_excel_files(baseline_path, compare_path, output_baseline_path, outpu
         col_name_map = {}
         baseline_col_names = {}
         for col_b in range(1, baseline_max_col + 1):
-            col_name_b = cells_baseline.get((header_row, col_b), "").strip()
+            col_name_b = cell_text(cells_baseline.get((header_row, col_b)))
             if col_name_b:
                 baseline_col_names[col_name_b] = col_b
 
         for col_c in range(1, compare_max_col + 1):
-            col_name_c = cells_compare.get((header_row, col_c), "").strip()
+            col_name_c = cell_text(cells_compare.get((header_row, col_c)))
             if col_name_c in baseline_col_names:
                 col_name_map[baseline_col_names[col_name_c]] = col_c
 
@@ -397,13 +403,13 @@ def compare_excel_files(baseline_path, compare_path, output_baseline_path, outpu
 
             for col in range(1, baseline_max_col + 1):
                 col_name_b = ws_baseline_saved.cell(row=header_row, column=col).value
-                col_name_b = col_name_b.strip() if col_name_b else ""
+                col_name_b = cell_text(col_name_b)
                 if not col_name_b:
                     continue
 
                 for c in range(1, ws_compare_saved.max_column + 1):
                     col_name_c = ws_compare_saved.cell(row=header_row, column=c).value
-                    col_name_c = col_name_c.strip() if col_name_c else ""
+                    col_name_c = cell_text(col_name_c)
                     if col_name_c == col_name_b:
                         value = ws_compare_saved.cell(row=row_compare, column=c).value
                         ws_diff.cell(row=insert_row, column=col, value=value)
@@ -1034,7 +1040,7 @@ class ExcelCompareGUI(ctk.CTk):
             col_name_map = {}
             for col in range(1, max_col + 1):
                 cell_value = ws.cell(row=header_row, column=col).value
-                col_name = cell_value.strip() if cell_value else "空"
+                col_name = cell_text(cell_value) or "空"
                 header_values.append(f"{col}: {col_name}")
                 col_name_map[col] = col_name
 
