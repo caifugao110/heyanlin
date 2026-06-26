@@ -43,7 +43,11 @@ jobs:
             }
           }
           
-          $projectsJson = $buildProjects | ConvertTo-Json -Compress
+          if ($buildProjects.Count -eq 1) {
+            $projectsJson = "[$($buildProjects | ConvertTo-Json -Compress)]"
+          } else {
+            $projectsJson = $buildProjects | ConvertTo-Json -Compress
+          }
           $versionsJson = $projectVersions | ConvertTo-Json -Compress
           echo "changed_projects=$projectsJson" >> $env:GITHUB_OUTPUT
           echo "project_versions=$versionsJson" >> $env:GITHUB_OUTPUT
@@ -133,6 +137,9 @@ jobs:
           if ($projects.Count -eq 1) {
             $projectName = $projects[0]
             $version = $versions.$projectName
+            if (-not $version) {
+              $version = $versions[$projectName]
+            }
             $baseTagName = "${projectName}-v${version}"
             
             $existingTags = git tag -l "${baseTagName}*" 2>$null
