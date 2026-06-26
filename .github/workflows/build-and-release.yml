@@ -1,0 +1,188 @@
+name: Build and Release Subprojects
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  detect-changes:
+    runs-on: windows-latest
+    outputs:
+      changed_projects: ${{ steps.detect.outputs.changed_projects }}
+      project_versions: ${{ steps.detect.outputs.project_versions }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed subprojects with scripts folder and versions
+        id: detect
+        shell: pwsh
+        run: |
+          $changedDirs = git diff --name-only HEAD~1 HEAD | ForEach-Object { ($_ -split '/')[0] } | Sort-Object -Unique
+          
+          $buildProjects = @()
+          $projectVersions = @{}
+          foreach ($dir in $changedDirs) {
+            $scriptsPath = Join-Path $dir "scripts"
+            if (Test-Path $scriptsPath -PathType Container) {
+              $buildProjects += $dir
+              $pyprojectPath = Join-Path $dir "pyproject.toml"
+              if (Test-Path $pyprojectPath) {
+                $content = Get-Content -Raw $pyprojectPath
+                if ($content -match 'version\s*=\s*"([^"]+)"') {
+                  $projectVersions[$dir] = $matches[1]
+                } else {
+                  $projectVersions[$dir] = "unknown"
+                }
+              } else {
+                $projectVersions[$dir] = "unknown"
+              }
+            }
+          }
+          
+          $projectsJson = $buildProjects | ConvertTo-Json -Compress
+          $versionsJson = $projectVersions | ConvertTo-Json -Compress
+          echo "changed_projects=$projectsJson" >> $env:GITHUB_OUTPUT
+          echo "project_versions=$versionsJson" >> $env:GITHUB_OUTPUT
+          Write-Host "Changed projects: $projectsJson"
+          Write-Host "Project versions: $versionsJson"
+
+  build-projects:
+    needs: detect-changes
+    if: ${{ fromJSON(needs.detect-changes.outputs.changed_projects) != '[]' }}
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        project: ${{ fromJSON(needs.detect-changes.outputs.changed_projects) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.project }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build exe with PyInstaller
+        working-directory: ${{ matrix.project }}
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --windowed `
+            --name "${{ matrix.project }}" `
+            --icon ".\assets\app.ico" `
+            --add-data ".\assets;assets" `
+            --add-data ".\pyproject.toml;." `
+            ".\app.py"
+
+      - name: Verify build
+        working-directory: ${{ matrix.project }}
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ".\dist\${{ matrix.project }}.exe")) {
+            throw "Build did not produce dist\${{ matrix.project }}.exe"
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.project }}-exe
+          path: ${{ matrix.project }}\dist\${{ matrix.project }}.exe
+          if-no-files-found: error
+
+  create-release:
+    needs: [detect-changes, build-projects]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate release tag
+        id: tag
+        shell: pwsh
+        run: |
+          $date = Get-Date -Format "yyyyMMdd"
+          $projects = '${{ needs.detect-changes.outputs.changed_projects }}' | ConvertFrom-Json
+          $versions = '${{ needs.detect-changes.outputs.project_versions }}' | ConvertFrom-Json
+          
+          $greekLetters = @('α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ')
+          
+          if ($projects.Count -eq 1) {
+            $projectName = $projects[0]
+            $version = $versions.$projectName
+            $baseTagName = "${projectName} V${version}"
+            
+            $existingTags = git tag -l "${baseTagName}*" 2>$null
+            $existingCount = ($existingTags | Measure-Object).Count
+            
+            if ($existingCount -eq 0) {
+              $tagName = $baseTagName
+            } else {
+              $iteration = $greekLetters[($existingCount - 1) % $greekLetters.Count]
+              $tagName = "${baseTagName}-${iteration}"
+            }
+          } else {
+            $allTags = git tag -l "*${date}-*" 2>$null
+            $existingCount = ($allTags | Measure-Object).Count
+            $iteration = $greekLetters[$existingCount % $greekLetters.Count]
+            $tagName = "release-${date}-${iteration}"
+          }
+          
+          echo "tag_name=$tagName" >> $env:GITHUB_OUTPUT
+          echo "date=$date" >> $env:GITHUB_OUTPUT
+          Write-Host "Generated tag: $tagName"
+
+      - name: Create and push tag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.tag_name }}"
+          if (git tag -l $tag) {
+            Write-Host "Tag $tag already exists, skip."
+            exit 0
+          }
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag -a $tag -m "Release $tag"
+          git push origin $tag
+          Write-Host "Tag $tag created and pushed."
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          name: ${{ steps.tag.outputs.tag_name }}
+          body: |
+            Release ${{ steps.tag.outputs.tag_name }}
+            
+            构建时间: ${{ steps.tag.outputs.date }}
+            
+            变更项目:
+            - ${{ join(fromJSON(needs.detect-changes.outputs.changed_projects), '
+            - ') }}
+            
+            - 单文件便携 exe，无需安装 Python 即可运行
+            - 自动构建于 GitHub Actions
+          files: |
+            dist/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
