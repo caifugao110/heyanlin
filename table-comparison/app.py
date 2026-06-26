@@ -9,6 +9,9 @@ import queue
 import threading
 import datetime
 import re
+import urllib.request
+import json
+import base64
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import webbrowser
@@ -20,7 +23,7 @@ log_queue = queue.Queue()
 
 PROJECT_URL = "https://github.com/caifugao110/heyanlin/tree/master/table-comparison"
 
-DEFAULT_BOOTSTRAP_THEME = "flatly"
+DEFAULT_BOOTSTRAP_THEME = "yeti"
 FONT_FAMILY = "Microsoft YaHei UI"
 
 
@@ -584,6 +587,7 @@ class ExcelCompareGUI(ttk.Window):
         theme_box.pack(side=LEFT)
         theme_box.bind("<<ComboboxSelected>>", self._change_theme)
         ttk.Button(theme_bar, text="GitHub", bootstyle="secondary-outline", command=self.open_homepage).pack(side=LEFT, padx=(8, 0))
+        ttk.Button(theme_bar, text="使用说明", bootstyle="secondary-outline", command=self.show_help).pack(side=LEFT, padx=(8, 0))
         ttk.Button(theme_bar, text="关于", bootstyle="secondary-outline", command=self.show_about).pack(side=LEFT, padx=(8, 0))
 
         main = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
@@ -761,6 +765,69 @@ class ExcelCompareGUI(ttk.Window):
         link.pack(anchor="w", pady=(14, 0))
         link.bind("<Button-1>", lambda _: self.open_homepage())
         ttk.Button(container, text="关闭", bootstyle="primary", command=dialog.destroy).pack(anchor="e", pady=(24, 0))
+
+    def show_help(self):
+        dialog = ttk.Toplevel(self)
+        dialog.title("使用说明")
+        dialog.geometry("900x600")
+        dialog.minsize(700, 500)
+        dialog.transient(self)
+        dialog.grab_set()
+        self._center_dialog(dialog, 900, 600)
+
+        container = ttk.Frame(dialog, padding=16)
+        container.pack(fill=BOTH, expand=YES)
+        container.rowconfigure(1, weight=1)
+        container.columnconfigure(0, weight=1)
+
+        ttk.Label(container, text="使用说明", font=(FONT_FAMILY, 16, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 12))
+
+        text_frame = ttk.Frame(container)
+        text_frame.grid(row=1, column=0, sticky="nsew")
+        text_frame.rowconfigure(0, weight=1)
+        text_frame.columnconfigure(0, weight=1)
+
+        help_text = tk.Text(
+            text_frame,
+            wrap="word",
+            font=(FONT_FAMILY, 10),
+            padx=10,
+            pady=10,
+            relief="solid",
+            borderwidth=1,
+            foreground="#424242",
+            background="#ffffff",
+            state="disabled",
+        )
+        help_text.grid(row=0, column=0, sticky="nsew")
+        yscroll = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=help_text.yview)
+        yscroll.grid(row=0, column=1, sticky="ns")
+        help_text.configure(yscrollcommand=yscroll.set)
+
+        ttk.Button(container, text="关闭", bootstyle="primary", command=dialog.destroy).grid(row=2, column=0, sticky="e", pady=(12, 0))
+
+        help_text.config(state="normal")
+        help_text.insert(tk.END, "正在加载使用说明...")
+        help_text.config(state="disabled")
+
+        def load_help():
+            try:
+                url = "https://gitee.com/api/v5/repos/caifugao110/heyanlin/contents/table-comparison/README.md"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                    content = base64.b64decode(data["content"]).decode("utf-8")
+                help_text.config(state="normal")
+                help_text.delete("1.0", tk.END)
+                help_text.insert(tk.END, content)
+                help_text.config(state="disabled")
+            except Exception as e:
+                help_text.config(state="normal")
+                help_text.delete("1.0", tk.END)
+                help_text.insert(tk.END, f"加载使用说明失败：{str(e)}\n\n请检查网络连接后重试。")
+                help_text.config(state="disabled")
+
+        threading.Thread(target=load_help, daemon=True).start()
 
     def _center_dialog(self, dialog, width, height):
         self.update_idletasks()

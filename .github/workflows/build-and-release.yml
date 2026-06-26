@@ -49,6 +49,8 @@ jobs:
             $projectsJson = $buildProjects | ConvertTo-Json -Compress
           }
           $versionsJson = $projectVersions | ConvertTo-Json -Compress
+          if (-not $projectsJson) { $projectsJson = '[]' }
+          if (-not $versionsJson) { $versionsJson = '{}' }
           echo "changed_projects=$projectsJson" >> $env:GITHUB_OUTPUT
           echo "project_versions=$versionsJson" >> $env:GITHUB_OUTPUT
           Write-Host "Changed projects: $projectsJson"
@@ -56,7 +58,7 @@ jobs:
 
   build-projects:
     needs: detect-changes
-    if: ${{ fromJSON(needs.detect-changes.outputs.changed_projects) != '[]' }}
+    if: ${{ needs.detect-changes.outputs.changed_projects != '' && needs.detect-changes.outputs.changed_projects != '[]' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
