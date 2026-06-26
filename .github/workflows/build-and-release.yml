@@ -133,7 +133,7 @@ jobs:
           if ($projects.Count -eq 1) {
             $projectName = $projects[0]
             $version = $versions.$projectName
-            $baseTagName = "${projectName} V${version}"
+            $baseTagName = "${projectName}-v${version}"
             
             $existingTags = git tag -l "${baseTagName}*" 2>$null
             $existingCount = ($existingTags | Measure-Object).Count
@@ -159,14 +159,14 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ steps.tag.outputs.tag_name }}"
-          if (git tag -l $tag) {
+          if (-not [string]::IsNullOrWhiteSpace($tag) -and (git tag -l -- $tag)) {
             Write-Host "Tag $tag already exists, skip."
             exit 0
           }
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git tag -a $tag -m "Release $tag"
-          git push origin $tag
+          git push origin -- $tag
           Write-Host "Tag $tag created and pushed."
 
       - name: Create Release and Upload Assets

@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">table-comparison</h1>
   <p align="center">
-    <img src="https://img.shields.io/github/v/tag/caifugao110/heyanlin?filter=table-comparison%20V*&color=blue&label=version" alt="version">
+    <img src="https://img.shields.io/github/v/tag/caifugao110/heyanlin?filter=table-comparison-v*&color=blue&label=version" alt="version">
     <img src="https://img.shields.io/badge/python-%3E%3D3.9-green" alt="python">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="license">
     <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="platform">
