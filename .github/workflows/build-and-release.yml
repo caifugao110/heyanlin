@@ -71,7 +71,7 @@ jobs:
       - name: Build all changed projects
         shell: pwsh
         run: |
-          $projects = '${{ needs.detect-changes.outputs.changed_projects }}' | ConvertFrom-Json
+          $projects = [array]('${{ needs.detect-changes.outputs.changed_projects }}' | ConvertFrom-Json)
           
           foreach ($project in $projects) {
             Write-Host "Building $project..."
@@ -131,17 +131,15 @@ jobs:
         shell: pwsh
         run: |
           $date = Get-Date -Format "yyyyMMdd"
-          $projects = '${{ needs.detect-changes.outputs.changed_projects }}' | ConvertFrom-Json
+          $projects = [array]('${{ needs.detect-changes.outputs.changed_projects }}' | ConvertFrom-Json)
           $versions = '${{ needs.detect-changes.outputs.project_versions }}' | ConvertFrom-Json
           
           $greekLetters = @('α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ')
           
           if ($projects.Count -eq 1) {
             $projectName = $projects[0]
-            $version = $versions.$projectName
-            if (-not $version) {
-              $version = $versions[$projectName]
-            }
+            $version = $versions.PSObject.Properties[$projectName].Value
+            if (-not $version) { $version = "unknown" }
             $baseTagName = "${projectName}-v${version}"
             
             $existingTags = git tag -l "${baseTagName}*" 2>$null
