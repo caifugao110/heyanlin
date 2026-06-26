@@ -1,6 +1,6 @@
 [project]
 name = "table-comparison"
-version = "2.2.2"
+version = "2.2.3"
 description = "A polished Python GUI tool for comparing Excel files and highlighting differences."
 readme = "README.md"
 requires-python = ">=3.9"
